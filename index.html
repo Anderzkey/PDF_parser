@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PDF Invoice Parser</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { color: #333; }
+        form { margin-bottom: 20px; }
+        input[type="file"] { margin-right: 10px; }
+        button { background-color: #4CAF50; color: white; padding: 10px 15px; border: none; cursor: pointer; }
+        button:hover { background-color: #45a049; }
+        #result { border: 1px solid #ddd; padding: 15px; background-color: #f9f9f9; }
+        pre { white-space: pre-wrap; word-wrap: break-word; }
+    </style>
+</head>
+<body>
+    <h1>Загрузите PDF счёта для парсинга</h1>
+    <form id="uploadForm" enctype="multipart/form-data">
+        <input type="file" id="pdfFile" name="pdfFile" accept=".pdf" required>
+        <button type="submit">Распарсить</button>
+    </form>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData();
+            const fileInput = document.getElementById('pdfFile');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                alert('Пожалуйста, выберите файл.');
+                return;
+            }
+
+            formData.append('pdfFile', file);
+
+            fetch('/parse', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                     return response.text().then(text => { throw new Error(text || response.statusText); });
+                }
+                return response.json(); // Ожидаем JSON от сервера
+            })
+            .then(data => {
+                // Отображаем результат как отформатированный JSON
+                document.getElementById('result').innerHTML = '<h2>Результат:</h2><pre>' + JSON.stringify(data, null, 2) + '</pre>';
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('result').innerHTML = '<h2 style="color:red;">Ошибка:</h2><p style="color:red;">' + error.message + '</p>';
+            });
+        });
+    </script>
+</body>
+</html>

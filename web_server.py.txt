@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+import http.server
+import socketserver
+import cgi
+import json
+import os
+import tempfile
+import sys
+import traceback
+
+# --- Импортируем ваш парсер ---
+# Убедитесь, что pdf_parser1.py находится в той же директории или в PYTHONPATH
+import pdf_parser
+
+# --- Настройки ---
+PORT = 8000
+UPLOAD_DIR = tempfile.gettempdir() # Используем временную директорию для загрузок
+# ------------------
+
+class InvoiceParserHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        """Обрабатывает GET-запросы - отдаём HTML-страницу"""
+        if self.path == '/':
+            try:
+                with open('index.html', 'rb') as f:
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html; charset=utf-8')
+                    self.end_headers()
+                    self.wfile.write(f.read())
+            except FileNotFoundError:
+                self.send_error(404, "File not found: index.html")
+        else:
+            self.send_error(404, "Page not found")
+
+    def do_POST(self):
+        """Обрабатывает POST-запросы - принимаем файл и парсим его"""
+        if self.path == '/parse':
+            try:
+                # --- Парсинг multipart/form-data ---
+                form = cgi.FieldStorage(
+                    fp=self.rfile,
+                    headers=self.headers,
+                    environ={'REQUEST_METHOD': 'POST',
+                             'CONTENT_TYPE': self.headers['Content-Type'],
+                             })
+
+                # Получаем файл
+                file_item = form['pdfFile']
+                if not file_item.file:
+                     raise ValueError("Не удалось получить файл из формы.")
+
+                # Создаём временный файл для сохранения загруженного PDF
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_pdf:
+                    tmp_pdf_path = tmp_pdf.name
+                    # Копируем данные в временный файл
+                    while True:
+                        chunk = file_item.file.read(8192)
+                        if not chunk:
+                            break
+                        tmp_pdf.write(chunk)
+
+                # --- Парсинг PDF ---
+                print(f"Парсинг файла: {tmp_pdf_path}")
+                parser = pdf_parser.InvoiceParser(tmp_pdf_path)
+                parsed_data = parser.parse()
+                print("Парсинг завершён.")
+
+                # --- Отправка результата ---
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json; charset=utf-8')
+                # Для CORS (если потребуется)
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                # Отправляем JSON-данные
+                self.wfile.write(json.dumps(parsed_data, ensure_ascii=False, indent=2).encode('utf-8'))
+
+            except Exception as e:
+                print(f"Ошибка при обработке запроса: {e}")
+                traceback.print_exc() # Для отладки
+                self.send_response(500) # Internal Server Error
+                self.send_header('Content-type', 'text/plain; charset=utf-8')
+                self.end_headers()
+                error_message = f"Ошибка сервера: {str(e)}"
+                self.wfile.write(error_message.encode('utf-8'))
+
+            finally:
+                # --- Очистка временных файлов ---
+                try:
+                    if 'tmp_pdf_path' in locals():
+                         os.remove(tmp_pdf_path)
+                         print(f"Временный файл удалён: {tmp_pdf_path}")
+                except OSError as e:
+                    print(f"Не удалось удалить временный файл {tmp_pdf_path}: {e}")
+
+        else:
+            self.send_error(404, "Endpoint not found")
+
+
+def run_server():
+    """Запускает веб-сервер"""
+    with socketserver.TCPServer(("", PORT), InvoiceParserHandler) as httpd:
+        print(f"Веб-сервер запущен на http://localhost:{PORT}")
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\nСервер остановлен.")
+            httpd.shutdown()
+
+if __name__ == '__main__':
+    # Проверка наличия необходимых файлов
+    if not os.path.exists('index.html'):
+        print("Ошибка: Файл 'index.html' не найден в текущей директории.", file=sys.stderr)
+        sys.exit(1)
+
+    # Проверка импорта парсера
+    try:
+        # Просто проверяем, что класс доступен
+        getattr(pdf_parser, 'InvoiceParser')
+    except AttributeError:
+        print("Ошибка: Класс 'InvoiceParser' не найден в модуле 'pdf_parser'.", file=sys.stderr)
+        sys.exit(1)
+
+    run_server()
