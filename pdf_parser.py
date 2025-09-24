@@ -207,14 +207,10 @@ class InvoiceParser:
                             
                             # Only add if it has meaningful data
                             if item['description'] and item['total_amount'] > 0:
-                                # Check if this item already exists in line_items
-                                existing = any(
-                                    existing_item.get('description') == item['description']
-                                    for existing_item in self.data['line_items']
-                                )
-                                if not existing:
-                                    item['type'] = 'table_item'
-                                    self.data['line_items'].append(item)
+                                # Add all items with meaningful data, don't skip duplicates
+                                # since invoice can have same services for different operations
+                                item['type'] = 'table_item'
+                                self.data['line_items'].append(item)
                         except (ValueError, IndexError):
                             continue
     
